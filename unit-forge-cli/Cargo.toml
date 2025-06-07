@@ -1,0 +1,7 @@
+[package]
+name = "unit-forge-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+unit-forge-lib = { path = "../unit-forge-lib" }

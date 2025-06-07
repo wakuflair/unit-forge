@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "unit-forge-lib",
+    "unit-forge-cli"
+]
+
+resolver = "2"
