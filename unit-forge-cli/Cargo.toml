@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 unit-forge-lib = { path = "../unit-forge-lib" }
+toml = "0.7"
