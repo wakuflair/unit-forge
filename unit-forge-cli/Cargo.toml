@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 unit-forge-lib = { path = "../unit-forge-lib" }
 toml = "0.7"
+color-eyre = "0.6.5"
