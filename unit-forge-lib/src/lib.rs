@@ -1,73 +1,85 @@
 use std::collections::HashMap;
 
 mod units;
+use thiserror::Error;
 pub use units::*;
 
-/// Constructs a map that links unit combinations to their derived units.
-/// For example, if m² is derived from "m * m", the map will contain:
-/// {
-///     "m": {
-///         "m": UnitDefinition of m² // When m is combined with m
-///     }
-/// }
+#[derive(Debug, Error)]
+pub enum DefinitionError {
+    #[error("Unit '{0}' is already defined in category '{1}'")]
+    DuplicatedUnit(String, String),
+    #[error("Derived unit '{0}' not found in derived expression '{1}'")]
+    UnitNotFound(String, String),
+    #[error("Invalid derived expression format: '{0}'")]
+    InvalidDerivedExpression(String),
+}
+
 pub fn construct_unit_translation_map(
     definitions: &UnitDefinitions,
-) -> HashMap<String, HashMap<String, (String, UnitDefinition)>> {
-    let mut translation_map: HashMap<String, HashMap<String, (String, UnitDefinition)>> =
-        HashMap::new();
+) -> Result<HashMap<(&str, &str, &str), &str>, DefinitionError> {
+    // (unit_key, op, unit_key) -> unit_key, e.g.:
+    // ("m", "*", "m") -> "m2"
+    // ("m", "/", "s") -> "mps"
+    let mut map: HashMap<(&str, &str, &str), &str> = HashMap::new();
 
-    // First pass: collect all base unit symbols for validation
-    let mut known_symbols: HashMap<&str, &str> = HashMap::new();
-    for units in definitions.categories.values() {
-        for (key, unit) in units.iter() {
-            if unit.derived.is_none() {
-                known_symbols.insert(&unit.symbol, key);
+    // First pass: collect all base units
+    let mut all_units: HashMap<&str, &UnitDefinition> = HashMap::new();
+    for (category, units) in definitions.categories.iter() {
+        for (unit_key, unit) in units.iter() {
+            if all_units.contains_key(unit_key.as_str()) {
+                return Err(DefinitionError::DuplicatedUnit(
+                    unit_key.clone(),
+                    category.to_owned(),
+                ));
             }
+            all_units.insert(unit_key.as_str(), unit);
         }
     }
 
     // Second pass: process derived units
-    for (category, units) in &definitions.categories {
-        for (unit_key, unit_def) in units {
+    for (_, units) in definitions.categories.iter() {
+        for (unit, unit_def) in units.iter() {
             if let Some(derived_expr) = &unit_def.derived {
                 // Parse simple expressions like "m * m" or "m / s"
-                let parts: Vec<&str> = derived_expr.split_whitespace().collect();
-                if parts.len() == 3 && (parts[1] == "*" || parts[1] == "/") {
-                    let first_unit = parts[0].trim();
-                    let second_unit = parts[2].trim();
-                    let operation = parts[1];
-
-                    // Validate that the referenced units exist
-                    if let (Some(first_key), Some(second_key)) = (
-                        known_symbols.get(first_unit),
-                        known_symbols.get(second_unit),
-                    ) {
-                        // Store the relationship with category info
-                        translation_map
-                            .entry(first_unit.to_string())
-                            .or_default()
-                            .insert(
-                                second_unit.to_string(),
-                                (category.clone(), unit_def.clone()),
-                            );
-
-                        // For multiplication, store the reverse relationship too (since a*b = b*a)
-                        if operation == "*" {
-                            translation_map
-                                .entry(second_unit.to_string())
-                                .or_default()
-                                .insert(
-                                    first_unit.to_string(),
-                                    (category.clone(), unit_def.clone()),
-                                );
+                match derived_expr.split_whitespace().collect::<Vec<&str>>()[..] {
+                    [left, op, right] => {
+                        if all_units.contains_key(left) {
+                            let key = (left, op, right);
+                            match op {
+                                "*" => {
+                                    map.insert(key, unit);
+                                    map.insert((unit, "/", left), right);
+                                    map.insert((unit, "/", right), left);
+                                }
+                                "/" => {
+                                    map.insert(key, unit);
+                                    map.insert((left, "/", unit), right);
+                                    map.insert((unit, "*", right), left);
+                                }
+                                _ => {
+                                    return Err(DefinitionError::InvalidDerivedExpression(
+                                        derived_expr.to_string(),
+                                    ));
+                                }
+                            }
+                        } else {
+                            return Err(DefinitionError::UnitNotFound(
+                                left.to_string(),
+                                derived_expr.to_string(),
+                            ));
                         }
+                    }
+                    _ => {
+                        return Err(DefinitionError::InvalidDerivedExpression(
+                            derived_expr.to_string(),
+                        ));
                     }
                 }
             }
         }
     }
 
-    translation_map
+    Ok(map)
 }
 
 #[cfg(test)]
@@ -89,18 +101,15 @@ s = { name = "second", symbol = "s" }
 mps = { name = "meters per second", symbol = "m/s", derived = "m / s" }
 "#;
         let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
-        let translation_map = construct_unit_translation_map(&definitions);
+        let map = construct_unit_translation_map(&definitions).unwrap();
 
         // Test m * m -> m² (area)
-        let m_translations = translation_map.get("m").unwrap();
-        let (category, m2_unit) = m_translations.get("m").unwrap();
-        assert_eq!(category, "area");
-        assert_eq!(m2_unit.symbol, "m²");
+        assert_eq!(map.get(&("m", "*", "m")).unwrap(), &"m2");
+        assert_eq!(map.get(&("m2", "/", "m")).unwrap(), &"m");
 
         // Test m / s -> m/s (speed)
-        let m_translations = translation_map.get("m").unwrap();
-        let (category, mps_unit) = m_translations.get("s").unwrap();
-        assert_eq!(category, "speed");
-        assert_eq!(mps_unit.symbol, "m/s");
+        assert_eq!(map.get(&("m", "/", "s")).unwrap(), &"mps");
+        assert_eq!(map.get(&("mps", "*", "s")).unwrap(), &"m");
+        assert_eq!(map.get(&("m", "/", "mps")).unwrap(), &"s");
     }
 }

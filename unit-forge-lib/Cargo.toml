@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 logos = "0.15.0"
+thiserror = "2.0.12"
 
 [dev-dependencies]
 toml = "0.7"
