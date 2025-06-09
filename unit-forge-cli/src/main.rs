@@ -4,21 +4,10 @@ use unit_forge_lib::UnitDefinitions;
 fn main() -> Result<()> {
     color_eyre::install()?;
     let unit_definitions = parse_unit_definitions()?;
+    println!("Unit Definitions: {:#?}", unit_definitions);
 
-    // Print out all categories and their units
-    for (category, units) in &unit_definitions.categories {
-        println!("\nCategory: {}", category);
-        for (key, unit) in units {
-            print!("  {} ({}, symbol: {})", key, unit.name, unit.symbol);
-            if unit.factor != 1.0 {
-                print!(", factor: {}", unit.factor);
-            }
-            if let Some(derived) = &unit.derived {
-                print!(", derived: {}", derived);
-            }
-            println!();
-        }
-    }
+    let map = unit_forge_lib::construct_unit_translation_map(&unit_definitions)?;
+    println!("Unit Translation Map: {:#?}", map);
 
     Ok(())
 }

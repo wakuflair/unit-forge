@@ -6,10 +6,10 @@ pub use units::*;
 
 #[derive(Debug, Error)]
 pub enum DefinitionError {
-    #[error("Unit '{0}' is already defined in category '{1}'")]
+    #[error("Duplicated unit found. Unit '{0}' of category '{1}'")]
     DuplicatedUnit(String, String),
-    #[error("Derived unit '{0}' not found in derived expression '{1}'")]
-    UnitNotFound(String, String),
+    #[error("Derived unit not defined. Unit '{0}' in expression '{1}' of category '{2}'")]
+    UnitNotFound(String, String, String),
     #[error("Invalid derived expression format: '{0}'")]
     InvalidDerivedExpression(String),
 }
@@ -37,7 +37,7 @@ pub fn construct_unit_translation_map(
     }
 
     // Second pass: process derived units
-    for (_, units) in definitions.categories.iter() {
+    for (category, units) in definitions.categories.iter() {
         for (unit, unit_def) in units.iter() {
             if let Some(derived_expr) = &unit_def.derived {
                 // Parse simple expressions like "m * m" or "m / s"
@@ -66,6 +66,7 @@ pub fn construct_unit_translation_map(
                             return Err(DefinitionError::UnitNotFound(
                                 left.to_string(),
                                 derived_expr.to_string(),
+                                category.to_string()
                             ));
                         }
                     }
@@ -164,7 +165,7 @@ m2 = { name = "square meter", symbol = "m²", derived = "x * x" }
 "#;
         let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
         let err = construct_unit_translation_map(&definitions).unwrap_err();
-        assert!(matches!(err, DefinitionError::UnitNotFound(unit, expr) 
-            if unit == "x" && expr == "x * x"));
+        assert!(matches!(err, DefinitionError::UnitNotFound(unit, expr, category) 
+            if unit == "x" && expr == "x * x" && category == "area"));
     }
 }
