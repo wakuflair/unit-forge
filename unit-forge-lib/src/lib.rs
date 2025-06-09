@@ -112,4 +112,59 @@ mps = { name = "meters per second", symbol = "m/s", derived = "m / s" }
         assert_eq!(map.get(&("mps", "*", "s")).unwrap(), &"m");
         assert_eq!(map.get(&("m", "/", "mps")).unwrap(), &"s");
     }
+
+    #[test]
+    fn test_duplicate_unit_error() {
+        let toml_str = r#"
+[length]
+m = { name = "meter", symbol = "m" }
+
+[area]
+m = { name = "another meter", symbol = "m" }
+"#;
+        let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
+        let err = construct_unit_translation_map(&definitions).unwrap_err();
+        assert!(matches!(err, DefinitionError::DuplicatedUnit(unit, category) 
+            if unit == "m" && category == "area"));
+    }
+
+    #[test]
+    fn test_invalid_derived_expression() {
+        let toml_str = r#"
+[length]
+m = { name = "meter", symbol = "m" }
+
+[area]
+m2 = { name = "square meter", symbol = "m²", derived = "m ** m" }
+"#;
+        let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
+        let err = construct_unit_translation_map(&definitions).unwrap_err();
+        assert!(matches!(err, DefinitionError::InvalidDerivedExpression(expr) 
+            if expr == "m ** m"));
+
+        // Test invalid operator
+        let toml_str = r#"
+[length]
+m = { name = "meter", symbol = "m" }
+
+[area]
+m2 = { name = "square meter", symbol = "m²", derived = "m + m" }
+"#;
+        let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
+        let err = construct_unit_translation_map(&definitions).unwrap_err();
+        assert!(matches!(err, DefinitionError::InvalidDerivedExpression(expr) 
+            if expr == "m + m"));
+    }
+
+    #[test]
+    fn test_undefined_unit_in_derived() {
+        let toml_str = r#"
+[area]
+m2 = { name = "square meter", symbol = "m²", derived = "x * x" }
+"#;
+        let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
+        let err = construct_unit_translation_map(&definitions).unwrap_err();
+        assert!(matches!(err, DefinitionError::UnitNotFound(unit, expr) 
+            if unit == "x" && expr == "x * x"));
+    }
 }
