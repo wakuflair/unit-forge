@@ -5,11 +5,11 @@ km = { name = "kilometer", symbol = "km", factor = 1000 }
 
 [area]
 m2 = { name = "square meter", symbol = "m²", derived = "m * m" }
-cm2 = { name = "square center meter", symbol = "cm²", factor = 10000 }
+cm2 = { name = "square center meter", symbol = "cm²", factor = 0.0001 }
 
 [volume]
 m3 = { name = "cubic meter", symbol = "m³", derived = "m * m * m" }
-cm3 = { name = "cubic center meter", symbol = "cm³", factor = 1000000 }
+cm3 = { name = "cubic center meter", symbol = "cm³", factor = 0.000001 }
 
 [time]
 second = { name = "second", symbol = "s" }
