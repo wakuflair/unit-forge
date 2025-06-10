@@ -22,7 +22,7 @@ pub fn construct_unit_translation_map(
     // ("m", "/", "s") -> "mps"
     let mut map: HashMap<(&str, &str, &str), &str> = HashMap::new();
 
-    // First pass: collect all base units
+    // First pass: collect all units
     let mut all_units: HashMap<&str, &UnitDefinition> = HashMap::new();
     for (category, units) in definitions.categories.iter() {
         for (unit_key, unit) in units.iter() {
@@ -40,41 +40,79 @@ pub fn construct_unit_translation_map(
     for (category, units) in definitions.categories.iter() {
         for (unit, unit_def) in units.iter() {
             if let Some(derived_expr) = &unit_def.derived {
-                // Parse simple expressions like "m * m" or "m / s"
-                match derived_expr.split_whitespace().collect::<Vec<&str>>()[..] {
-                    [left, op, right] => {
-                        if all_units.contains_key(left) {
-                            let key = (left, op, right);
-                            match op {
-                                "*" => {
-                                    map.insert(key, unit);
-                                    map.insert((unit, "/", left), right);
-                                    map.insert((unit, "/", right), left);
-                                }
-                                "/" => {
-                                    map.insert(key, unit);
-                                    map.insert((left, "/", unit), right);
-                                    map.insert((unit, "*", right), left);
-                                }
-                                _ => {
-                                    return Err(DefinitionError::InvalidDerivedExpression(
-                                        derived_expr.to_string(),
-                                    ));
-                                }
-                            }
-                        } else {
-                            return Err(DefinitionError::UnitNotFound(
-                                left.to_string(),
-                                derived_expr.to_string(),
-                                category.to_string()
-                            ));
-                        }
-                    }
-                    _ => {
-                        return Err(DefinitionError::InvalidDerivedExpression(
+                let parts: Vec<&str> = derived_expr.split_whitespace().collect();
+                
+                // Must have odd number of parts (alternating unit and operator)
+                if parts.len() >= 3 && parts.len() % 2 == 1 {
+                    let mut current_unit = parts[0];
+                    let mut i = 1;
+                    
+                    // Validate first unit exists
+                    if !all_units.contains_key(current_unit) {
+                        return Err(DefinitionError::UnitNotFound(
+                            current_unit.to_string(),
                             derived_expr.to_string(),
+                            category.to_string(),
                         ));
                     }
+
+                    while i < parts.len() - 1 {
+                        let op = parts[i];
+                        let next_unit = parts[i + 1];
+                        
+                        // Validate operator
+                        if op != "*" && op != "/" {
+                            return Err(DefinitionError::InvalidDerivedExpression(
+                                derived_expr.to_string(),
+                            ));
+                        }
+                        
+                        // Validate next unit exists
+                        if !all_units.contains_key(next_unit) {
+                            return Err(DefinitionError::UnitNotFound(
+                                next_unit.to_string(),
+                                derived_expr.to_string(),
+                                category.to_string(),
+                            ));
+                        }
+
+                        // For intermediate operations, look up result in map if needed
+                        let result_unit = if i == parts.len() - 2 {
+                            // Last operation, result is our target unit
+                            unit
+                        } else {
+                            // For intermediate operations (e.g., first m * m in m * m * m)
+                            let key = (current_unit, op, next_unit);
+                            if let Some(&result) = map.get(&key) {
+                                result
+                            } else {
+                                return Err(DefinitionError::InvalidDerivedExpression(format!(
+                                    "Cannot find intermediate unit for: {} {} {}",
+                                    current_unit, op, next_unit
+                                )));
+                            }
+                        };
+
+                        // Add mappings for this operation
+                        if op == "*" {
+                            map.insert((current_unit, "*", next_unit), result_unit);
+                            map.insert((next_unit, "*", current_unit), result_unit);
+                            map.insert((result_unit, "/", current_unit), next_unit);
+                            map.insert((result_unit, "/", next_unit), current_unit);
+                        } else { // op == "/"
+                            map.insert((current_unit, "/", next_unit), result_unit);
+                            map.insert((current_unit, "/", result_unit), next_unit);
+                            map.insert((result_unit, "*", next_unit), current_unit);
+                        }
+                        
+                        // Set up for next iteration
+                        current_unit = result_unit;
+                        i += 2;
+                    }
+                } else {
+                    return Err(DefinitionError::InvalidDerivedExpression(
+                        derived_expr.to_string(),
+                    ));
                 }
             }
         }
@@ -86,6 +124,7 @@ pub fn construct_unit_translation_map(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_unit_translation_map() {
         let toml_str = r#"
@@ -115,6 +154,31 @@ mps = { name = "meters per second", symbol = "m/s", derived = "m / s" }
     }
 
     #[test]
+    fn test_multiple_operators() {
+        let toml_str = r#"
+[length]
+m = { name = "meter", symbol = "m" }
+
+[area]
+m2 = { name = "square meter", symbol = "m²", derived = "m * m" }
+
+[volume]
+m3 = { name = "cubic meter", symbol = "m³", derived = "m * m * m" }
+"#;
+        let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
+        let map = construct_unit_translation_map(&definitions).unwrap();
+
+        // Test basic area operations
+        assert_eq!(map.get(&("m", "*", "m")).unwrap(), &"m2");
+        assert_eq!(map.get(&("m2", "/", "m")).unwrap(), &"m");
+
+        // Test volume operations
+        assert_eq!(map.get(&("m2", "*", "m")).unwrap(), &"m3");
+        assert_eq!(map.get(&("m3", "/", "m")).unwrap(), &"m2");
+        assert_eq!(map.get(&("m3", "/", "m2")).unwrap(), &"m");
+    }
+
+    #[test]
     fn test_duplicate_unit_error() {
         let toml_str = r#"
 [length]
@@ -125,6 +189,7 @@ m = { name = "another meter", symbol = "m" }
 "#;
         let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
         let err = construct_unit_translation_map(&definitions).unwrap_err();
+        println!("Error: {}", err);
         assert!(matches!(err, DefinitionError::DuplicatedUnit(unit, category) 
             if unit == "m" && category == "area"));
     }

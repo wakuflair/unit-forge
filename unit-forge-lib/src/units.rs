@@ -1,5 +1,5 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -19,7 +19,7 @@ fn default_factor() -> f64 {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct UnitDefinitions {
     #[serde(flatten)]
-    pub categories: HashMap<String, HashMap<String, UnitDefinition>>,
+    pub categories: IndexMap<String, IndexMap<String, UnitDefinition>>,
 }
 
 #[cfg(test)]
@@ -31,7 +31,7 @@ mod tests {
         let toml_str = r#"
 [area]
 m2 = { name = "square meter", symbol = "m²", derived = "m * m" }
-cm2 = { name = "square center meter", symbol = "cm²", factor = "10000" }
+cm2 = { name = "square center meter", symbol = "cm²", factor = 10000 }
         "#;
 
         let definitions: UnitDefinitions = toml::from_str(toml_str).unwrap();
