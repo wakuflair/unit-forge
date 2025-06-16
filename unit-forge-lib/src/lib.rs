@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
-mod units;
+mod unit;
+mod parser;
+
 use thiserror::Error;
-pub use units::*;
+pub use unit::*;
 
 #[derive(Debug, Error)]
 pub enum DefinitionError {
