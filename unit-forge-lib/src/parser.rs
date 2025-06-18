@@ -90,27 +90,64 @@ fn eval<'src>(
     unit: &Unit<'src>,
 ) -> Result<(f64, Option<&'src str>), String> {
     match expr {
-        Expr::Num(num, unit) => Ok((*num, *unit)),
+        Expr::Num(num, unit_str) => Ok((*num, *unit_str)),
         Expr::Neg(a) => {
             let (val, unit) = eval(a, vars, unit)?;
             Ok((-val, unit))
         }
-        Expr::Add(a, b) => {
+        Expr::Add(a, b) | Expr::Sub(a, b) => {
             let (val_a, unit_a) = eval(a, vars, unit)?;
             let (val_b, unit_b) = eval(b, vars, unit)?;
-            if unit_a == unit_b {
-                Ok((val_a + val_b, unit_a))
-            } else {
-                Err(format!("Incompatible units: {:?} and {:?}", unit_a, unit_b))
-            }
-        }
-        Expr::Sub(a, b) => {
-            let (val_a, unit_a) = eval(a, vars, unit)?;
-            let (val_b, unit_b) = eval(b, vars, unit)?;
-            if unit_a == unit_b {
-                Ok((val_a - val_b, unit_a))
-            } else {
-                Err(format!("Incompatible units: {:?} and {:?}", unit_a, unit_b))
+
+            match (unit_a, unit_b) {
+                (None, None) => {
+                    let op = if matches!(expr, Expr::Add(_, _)) {
+                        "+"
+                    } else {
+                        "-"
+                    };
+                    Ok((
+                        if op == "+" {
+                            val_a + val_b
+                        } else {
+                            val_a - val_b
+                        },
+                        None,
+                    ))
+                }
+                (Some(u_a), Some(u_b)) => {
+                    // Find the category that contains both units
+                    let category = unit
+                        .unit_definitions()
+                        .categories
+                        .iter()
+                        .find(|(_, units)| units.contains_key(u_a) && units.contains_key(u_b))
+                        .map(|(cat, _)| cat);
+
+                    if let Some(category) = category {
+                        let units = &unit.unit_definitions().categories[category];
+                        let unit_a = &units[u_a];
+                        let unit_b = &units[u_b];
+
+                        // Convert unit_b to unit_a
+                        let converted_b = val_b * unit_b.factor / unit_a.factor;
+                        let op = if matches!(expr, Expr::Add(_, _)) {
+                            "+"
+                        } else {
+                            "-"
+                        };
+                        let result = if op == "+" {
+                            val_a + converted_b
+                        } else {
+                            val_a - converted_b
+                        };
+
+                        Ok((result, Some(u_a)))
+                    } else {
+                        Err(format!("Incompatible units: {:?} and {:?}", unit_a, unit_b))
+                    }
+                }
+                _ => Err("Cannot mix unitless and unit values".to_string()),
             }
         }
         Expr::Mul(a, b) | Expr::Div(a, b) => {
@@ -154,8 +191,6 @@ fn eval<'src>(
 
 #[cfg(test)]
 mod tests {
-    use crate::UnitDefinition;
-
     use super::*;
 
     #[test]
@@ -199,5 +234,65 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         let unit = Unit::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert_eq!(result, Ok((7.0, Some("cm2"))),);
+    }
+
+    #[test]
+    fn test_eval_incompatible_units_add() {
+        let expr = "1 m + 2 s";
+        let parsed = parser().parse(expr).unwrap();
+        let mut vars = Vec::new();
+        let unit_definitions = UnitDefinitions::default();
+        let unit = Unit::new(&unit_definitions).unwrap();
+        let result = eval(&parsed, &mut vars, &unit);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Incompatible units"));
+    }
+
+    #[test]
+    fn test_eval_incompatible_units_sub() {
+        let expr = "5 kg - 2 m";
+        let parsed = parser().parse(expr).unwrap();
+        let mut vars = Vec::new();
+        let unit_definitions = UnitDefinitions::default();
+        let unit = Unit::new(&unit_definitions).unwrap();
+        let result = eval(&parsed, &mut vars, &unit);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Incompatible units"));
+    }
+
+    #[test]
+    fn test_eval_invalid_unit_multiplication() {
+        let expr = "2 m * 3 s"; // assuming m*s is not defined in default unit definitions
+        let parsed = parser().parse(expr).unwrap();
+        let mut vars = Vec::new();
+        let unit_definitions = UnitDefinitions::default();
+        let unit = Unit::new(&unit_definitions).unwrap();
+        let result = eval(&parsed, &mut vars, &unit);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cannot evaluate"));
+    }
+
+    #[test]
+    fn test_eval_unknown_variable() {
+        let expr = "x + 2";
+        let parsed = parser().parse(expr).unwrap();
+        let mut vars = Vec::new();
+        let unit_definitions = UnitDefinitions::default();
+        let unit = Unit::new(&unit_definitions).unwrap();
+        let result = eval(&parsed, &mut vars, &unit);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cannot find variable `x`"));
+    }
+
+    #[test]
+    fn test_eval_let_with_incompatible_units() {
+        let expr = "let x = 5 m; x + 3 s";
+        let parsed = parser().parse(expr).unwrap();
+        let mut vars = Vec::new();
+        let unit_definitions = UnitDefinitions::default();
+        let unit = Unit::new(&unit_definitions).unwrap();
+        let result = eval(&parsed, &mut vars, &unit);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Incompatible units"));
     }
 }
