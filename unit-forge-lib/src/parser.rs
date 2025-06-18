@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use chumsky::prelude::*;
 
+use crate::{Unit, UnitDefinitions};
+
 #[derive(Debug)]
 enum Expr<'src> {
     Num(f64, Option<&'src str>), // Store the unit as a string alongside the number
@@ -85,17 +87,17 @@ fn parser<'src>() -> impl Parser<'src, &'src str, Expr<'src>> {
 fn eval<'src>(
     expr: &'src Expr<'src>,
     vars: &mut Vec<(&'src str, (f64, Option<&'src str>))>,
-    unit_map: &HashMap<(&'src str, &'src str, &'src str), &'src str>,
+    unit: &Unit<'src>,
 ) -> Result<(f64, Option<&'src str>), String> {
     match expr {
         Expr::Num(num, unit) => Ok((*num, *unit)),
         Expr::Neg(a) => {
-            let (val, unit) = eval(a, vars, unit_map)?;
+            let (val, unit) = eval(a, vars, unit)?;
             Ok((-val, unit))
         }
         Expr::Add(a, b) => {
-            let (val_a, unit_a) = eval(a, vars, unit_map)?;
-            let (val_b, unit_b) = eval(b, vars, unit_map)?;
+            let (val_a, unit_a) = eval(a, vars, unit)?;
+            let (val_b, unit_b) = eval(b, vars, unit)?;
             if unit_a == unit_b {
                 Ok((val_a + val_b, unit_a))
             } else {
@@ -103,8 +105,8 @@ fn eval<'src>(
             }
         }
         Expr::Sub(a, b) => {
-            let (val_a, unit_a) = eval(a, vars, unit_map)?;
-            let (val_b, unit_b) = eval(b, vars, unit_map)?;
+            let (val_a, unit_a) = eval(a, vars, unit)?;
+            let (val_b, unit_b) = eval(b, vars, unit)?;
             if unit_a == unit_b {
                 Ok((val_a - val_b, unit_a))
             } else {
@@ -117,12 +119,12 @@ fn eval<'src>(
             } else {
                 "/"
             };
-            let (val_a, unit_a) = eval(a, vars, unit_map)?;
-            let (val_b, unit_b) = eval(b, vars, unit_map)?;
+            let (val_a, unit_a) = eval(a, vars, unit)?;
+            let (val_b, unit_b) = eval(b, vars, unit)?;
             let new_unit = match (unit_a, unit_b) {
-                (Some(u_a), Some(u_b)) => match unit_map.get(&(u_a, op, u_b)) {
+                (Some(u_a), Some(u_b)) => match unit.unit_map.get(&(u_a, op, u_b)) {
                     Some(&new_unit) => Some(new_unit),
-                    _ => return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b)),
+                    _ => return Err(format!("Cannot evaluate {:?} {} {:?}", u_a, op, u_b)),
                 },
                 (None, None) => None,
                 _ => return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b)),
@@ -141,9 +143,9 @@ fn eval<'src>(
             }
         }
         Expr::Let { name, rhs, then } => {
-            let rhs = eval(rhs, vars, unit_map)?;
+            let rhs = eval(rhs, vars, unit)?;
             vars.push((*name, rhs));
-            let output = eval(then, vars, unit_map);
+            let output = eval(then, vars, unit);
             vars.pop();
             output
         }
@@ -152,6 +154,8 @@ fn eval<'src>(
 
 #[cfg(test)]
 mod tests {
+    use crate::UnitDefinition;
+
     use super::*;
 
     #[test]
@@ -159,18 +163,41 @@ mod tests {
         let expr = "1 + 2 * 3";
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
-        let map = HashMap::new();
-        let result = eval(&parsed, &mut vars, &map);
+        let unit_definitions = UnitDefinitions::default();
+        let unit = Unit::new(&unit_definitions).unwrap();
+        let result = eval(&parsed, &mut vars, &unit);
         assert_eq!(result, Ok((7.0, None)));
     }
 
     #[test]
-    fn test_eval_with_unit() {
+    fn test_eval_with_unit_definitions() {
+        let expr = "1 m + 2 cm";
+        let parsed = parser().parse(expr).unwrap();
+        let mut vars = Vec::new();
+        let unit_definitions = UnitDefinitions::default();
+        let unit = Unit::new(&unit_definitions).unwrap();
+        let result = eval(&parsed, &mut vars, &unit);
+        assert_eq!(result, Ok((1.02, Some("m"))),);
+    }
+
+    #[test]
+    fn test_eval_with_unit_map() {
         let expr = "1 cm2 + 2 cm * 3cm";
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
-        let map = HashMap::from([(("cm", "*", "cm"), "cm2")]);
-        let result = eval(&parsed, &mut vars, &map);
+        let unit_definitions = toml::from_str(
+            r#"
+[length]
+cm = { name = "center meter", symbol = "cm" }
+
+[area]
+cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
+"#,
+        )
+        .unwrap();
+
+        let unit = Unit::new(&unit_definitions).unwrap();
+        let result = eval(&parsed, &mut vars, &unit);
         assert_eq!(result, Ok((7.0, Some("cm2"))),);
     }
 }

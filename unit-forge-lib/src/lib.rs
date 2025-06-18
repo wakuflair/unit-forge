@@ -16,13 +16,35 @@ pub enum DefinitionError {
     InvalidDerivedExpression(String),
 }
 
+pub type UnitMapType<'a> = HashMap<(&'a str, &'a str, &'a str), &'a str>;
+
+pub struct Unit<'a> {
+    unit_definitions: &'a UnitDefinitions,
+    unit_map: UnitMapType<'a>,
+}
+
+impl<'a> Unit<'a> {
+    pub fn new(unit_definitions: &'a UnitDefinitions) -> Result<Self, DefinitionError> {
+        let unit_map = construct_unit_translation_map(unit_definitions)?;
+        Ok(Self { unit_definitions, unit_map })
+    }
+    
+    pub fn unit_definitions(&self) -> &'a UnitDefinitions {
+        self.unit_definitions
+    }
+    
+    pub fn unit_map(&self) -> &UnitMapType {
+        &self.unit_map
+    }
+}
+
 pub fn construct_unit_translation_map(
     definitions: &UnitDefinitions,
-) -> Result<HashMap<(&str, &str, &str), &str>, DefinitionError> {
+) -> Result<UnitMapType, DefinitionError> {
     // (unit_key, op, unit_key) -> unit_key, e.g.:
     // ("m", "*", "m") -> "m2"
     // ("m", "/", "s") -> "mps"
-    let mut map: HashMap<(&str, &str, &str), &str> = HashMap::new();
+    let mut map: UnitMapType = UnitMapType::new();
 
     // First pass: collect all units
     let mut all_units: HashMap<&str, &UnitDefinition> = HashMap::new();
