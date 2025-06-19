@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use chumsky::prelude::*;
 
-use crate::{Unit, UnitDefinitions};
+use crate::unit_table::UnitTable;
 
 #[derive(Debug)]
 enum Expr<'src> {
@@ -87,17 +85,26 @@ fn parser<'src>() -> impl Parser<'src, &'src str, Expr<'src>> {
 fn eval<'src>(
     expr: &'src Expr<'src>,
     vars: &mut Vec<(&'src str, (f64, Option<&'src str>))>,
-    unit: &'src Unit,
+    unit_table: &'src UnitTable,
 ) -> Result<(f64, Option<&'src str>), String> {
     match expr {
-        Expr::Num(num, unit_str) => Ok((*num, *unit_str)),
+        Expr::Num(num, unit_str) => {
+            if let Some(u) = unit_str {
+                match unit_table.base_units_map().get(u) {
+                    Some(&(factor, base_unit)) => Ok(((*num * factor), Some(base_unit))),
+                    None => Err(format!("Unknown unit: {}", u)),
+                }
+            } else {
+                Ok((*num, *unit_str))
+            }
+        }
         Expr::Neg(a) => {
-            let (val, unit) = eval(a, vars, unit)?;
+            let (val, unit) = eval(a, vars, unit_table)?;
             Ok((-val, unit))
         }
         Expr::Add(a, b) | Expr::Sub(a, b) => {
-            let (val_a, unit_a) = eval(a, vars, unit)?;
-            let (val_b, unit_b) = eval(b, vars, unit)?;
+            let (val_a, unit_a) = eval(a, vars, unit_table)?;
+            let (val_b, unit_b) = eval(b, vars, unit_table)?;
 
             match (unit_a, unit_b) {
                 (None, None) => {
@@ -117,7 +124,7 @@ fn eval<'src>(
                 }
                 (Some(u_a), Some(u_b)) => {
                     // Find the category that contains both units
-                    let category = unit
+                    let category = unit_table
                         .unit_definitions()
                         .categories
                         .iter()
@@ -125,7 +132,7 @@ fn eval<'src>(
                         .map(|(cat, _)| cat);
 
                     if let Some(category) = category {
-                        let units = &unit.unit_definitions().categories[category];
+                        let units = &unit_table.unit_definitions().categories[category];
                         let unit_a = &units[u_a];
                         let unit_b = &units[u_b];
 
@@ -156,10 +163,11 @@ fn eval<'src>(
             } else {
                 "/"
             };
-            let (val_a, unit_a) = eval(a, vars, unit)?;
-            let (val_b, unit_b) = eval(b, vars, unit)?;
+            let (val_a, unit_a) = eval(a, vars, unit_table)?;
+            let (val_b, unit_b) = eval(b, vars, unit_table)?;
             let new_unit = match (unit_a, unit_b) {
-                (Some(u_a), Some(u_b)) => match unit.derived_units_map().get(&(u_a, op, u_b)) {
+                (Some(u_a), Some(u_b)) => match unit_table.derived_units_map().get(&(u_a, op, u_b))
+                {
                     Some(&new_unit) => Some(new_unit),
                     _ => return Err(format!("Cannot evaluate {:?} {} {:?}", u_a, op, u_b)),
                 },
@@ -180,9 +188,9 @@ fn eval<'src>(
             }
         }
         Expr::Let { name, rhs, then } => {
-            let rhs = eval(rhs, vars, unit)?;
+            let rhs = eval(rhs, vars, unit_table)?;
             vars.push((*name, rhs));
-            let output = eval(then, vars, unit);
+            let output = eval(then, vars, unit_table);
             vars.pop();
             output
         }
@@ -191,6 +199,8 @@ fn eval<'src>(
 
 #[cfg(test)]
 mod tests {
+    use crate::UnitDefinitions;
+
     use super::*;
 
     #[test]
@@ -199,7 +209,7 @@ mod tests {
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
         let unit_definitions = UnitDefinitions::default();
-        let unit = Unit::new(&unit_definitions).unwrap();
+        let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert_eq!(result, Ok((7.0, None)));
     }
@@ -217,7 +227,7 @@ cm = { name = "centimeter", symbol = "cm", factor = 0.01 }
 "#,
         )
         .unwrap();
-        let unit = Unit::new(&unit_definitions).unwrap();
+        let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert_eq!(result, Ok((1.02, Some("m"))),);
     }
@@ -238,7 +248,7 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         )
         .unwrap();
 
-        let unit = Unit::new(&unit_definitions).unwrap();
+        let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert_eq!(result, Ok((7.0, Some("cm2"))),);
     }
@@ -249,7 +259,7 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
         let unit_definitions = UnitDefinitions::default();
-        let unit = Unit::new(&unit_definitions).unwrap();
+        let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Incompatible units"));
@@ -261,7 +271,7 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
         let unit_definitions = UnitDefinitions::default();
-        let unit = Unit::new(&unit_definitions).unwrap();
+        let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Incompatible units"));
@@ -273,7 +283,7 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
         let unit_definitions = UnitDefinitions::default();
-        let unit = Unit::new(&unit_definitions).unwrap();
+        let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Cannot evaluate"));
@@ -285,7 +295,7 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
         let unit_definitions = UnitDefinitions::default();
-        let unit = Unit::new(&unit_definitions).unwrap();
+        let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Cannot find variable `x`"));
@@ -297,7 +307,7 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
         let unit_definitions = UnitDefinitions::default();
-        let unit = Unit::new(&unit_definitions).unwrap();
+        let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Incompatible units"));
