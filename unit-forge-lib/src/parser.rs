@@ -103,25 +103,23 @@ fn eval<'src>(
             Ok((-val, unit))
         }
         Expr::Add(a, b) | Expr::Sub(a, b) => {
+            let op = if matches!(expr, Expr::Add(_, _)) {
+                "+"
+            } else {
+                "-"
+            };
             let (val_a, unit_a) = eval(a, vars, unit_table)?;
             let (val_b, unit_b) = eval(b, vars, unit_table)?;
 
             match (unit_a, unit_b) {
-                (None, None) => {
-                    let op = if matches!(expr, Expr::Add(_, _)) {
-                        "+"
+                (None, None) => Ok((
+                    if op == "+" {
+                        val_a + val_b
                     } else {
-                        "-"
-                    };
-                    Ok((
-                        if op == "+" {
-                            val_a + val_b
-                        } else {
-                            val_a - val_b
-                        },
-                        None,
-                    ))
-                }
+                        val_a - val_b
+                    },
+                    None,
+                )),
                 (Some(u_a), Some(u_b)) => {
                     // Find the category that contains both units
                     let category = unit_table
@@ -151,7 +149,7 @@ fn eval<'src>(
 
                         Ok((result, Some(u_a)))
                     } else {
-                        Err(format!("Incompatible units: {:?} and {:?}", u_a, u_b))
+                        Err(format!("Cannot evaluate {:?} {} {:?}", u_a, op, u_b))
                     }
                 }
                 _ => Err("Cannot mix unitless and unit values".to_string()),
@@ -254,39 +252,46 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
     }
 
     #[test]
-    fn test_eval_incompatible_units_add() {
-        let expr = "1 m + 2 s";
+    fn test_eval_incompatible_units() {
+        let expr = "1 m + 2 second";
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
-        let unit_definitions = UnitDefinitions::default();
-        let unit = UnitTable::new(&unit_definitions).unwrap();
-        let result = eval(&parsed, &mut vars, &unit);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Incompatible units"));
-    }
+        let unit_definitions = toml::from_str(
+            r#"
+[length]
+m = { name = "meter", symbol = "m" }
 
-    #[test]
-    fn test_eval_incompatible_units_sub() {
-        let expr = "5 kg - 2 m";
-        let parsed = parser().parse(expr).unwrap();
-        let mut vars = Vec::new();
-        let unit_definitions = UnitDefinitions::default();
+[time]
+second = { name = "second", symbol = "s" }
+"#,
+        )
+        .unwrap();
+
         let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Incompatible units"));
+        assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" + \"second\"");
     }
 
     #[test]
     fn test_eval_invalid_unit_multiplication() {
-        let expr = "2 m * 3 s"; // assuming m*s is not defined in default unit definitions
+        let expr = "2 m * 3 second";
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
-        let unit_definitions = UnitDefinitions::default();
+        let unit_definitions = toml::from_str(
+            r#"
+[length]
+m = { name = "meter", symbol = "m" }
+
+[time]
+second = { name = "second", symbol = "s" }
+"#,
+        )
+        .unwrap();
         let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Cannot evaluate"));
+        assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" * \"second\"");
     }
 
     #[test]
@@ -303,13 +308,22 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
 
     #[test]
     fn test_eval_let_with_incompatible_units() {
-        let expr = "let x = 5 m; x + 3 s";
+        let expr = "let x = 5 m; x + 3 second";
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
-        let unit_definitions = UnitDefinitions::default();
+        let unit_definitions = toml::from_str(
+            r#"
+[length]
+m = { name = "meter", symbol = "m" }
+
+[time]
+second = { name = "second", symbol = "s" }
+"#,
+        )
+        .unwrap();
         let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Incompatible units"));
+        assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" + \"second\"");
     }
 }
