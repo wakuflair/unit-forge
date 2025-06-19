@@ -14,31 +14,41 @@ pub enum DefinitionError {
     UnitNotFound(String, String, String),
     #[error("Invalid derived expression format: '{0}'")]
     InvalidDerivedExpression(String),
+    #[error("No units defined in category '{0}'")]
+    NoUnitDefined(String),
 }
 
 pub type UnitMapType<'a> = HashMap<(&'a str, &'a str, &'a str), &'a str>;
+pub type BaseUnitMapType<'a> = HashMap<&'a str, (f64, &'a str)>;
 
+#[derive(Debug)]
 pub struct Unit<'a> {
     unit_definitions: &'a UnitDefinitions,
-    unit_map: UnitMapType<'a>,
+    derived_units_map: UnitMapType<'a>,
+    base_units_map: BaseUnitMapType<'a>,
 }
 
 impl<'a> Unit<'a> {
     pub fn new(unit_definitions: &'a UnitDefinitions) -> Result<Self, DefinitionError> {
-        let unit_map = construct_unit_translation_map(unit_definitions)?;
-        Ok(Self { unit_definitions, unit_map })
+        let derived_units_map = construct_unit_translation_map(unit_definitions)?;
+        let base_units_map = construct_base_units_map(unit_definitions)?;
+        Ok(Self { unit_definitions, derived_units_map, base_units_map })
     }
-    
+
     pub fn unit_definitions(&self) -> &'a UnitDefinitions {
         self.unit_definitions
     }
-    
-    pub fn unit_map(&self) -> &UnitMapType {
-        &self.unit_map
+
+    pub fn derived_units_map(&self) -> &UnitMapType {
+        &self.derived_units_map
+    }
+
+    pub fn base_units_map(&self) -> &BaseUnitMapType {
+        &self.base_units_map
     }
 }
 
-pub fn construct_unit_translation_map(
+fn construct_unit_translation_map(
     definitions: &UnitDefinitions,
 ) -> Result<UnitMapType, DefinitionError> {
     // (unit_key, op, unit_key) -> unit_key, e.g.:
@@ -144,6 +154,24 @@ pub fn construct_unit_translation_map(
 
     Ok(map)
 }
+
+fn construct_base_units_map(
+    definitions: &UnitDefinitions,
+) -> Result<BaseUnitMapType, DefinitionError> {
+    let mut base_units_map: BaseUnitMapType = BaseUnitMapType::new();
+
+    for (category, units) in definitions.categories.iter() {
+        let base_unit = units.first().ok_or_else(|| {
+            DefinitionError::NoUnitDefined(category.to_string())
+        })?.0;
+        for (unit_key, unit_def) in units.iter().skip(1) {
+            base_units_map.insert(&unit_key, (unit_def.factor, base_unit));
+        }
+    }
+
+    Ok(base_units_map)
+}
+
 
 #[cfg(test)]
 mod tests {

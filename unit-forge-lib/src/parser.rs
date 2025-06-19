@@ -87,7 +87,7 @@ fn parser<'src>() -> impl Parser<'src, &'src str, Expr<'src>> {
 fn eval<'src>(
     expr: &'src Expr<'src>,
     vars: &mut Vec<(&'src str, (f64, Option<&'src str>))>,
-    unit: &Unit<'src>,
+    unit: &'src Unit,
 ) -> Result<(f64, Option<&'src str>), String> {
     match expr {
         Expr::Num(num, unit_str) => Ok((*num, *unit_str)),
@@ -144,7 +144,7 @@ fn eval<'src>(
 
                         Ok((result, Some(u_a)))
                     } else {
-                        Err(format!("Incompatible units: {:?} and {:?}", unit_a, unit_b))
+                        Err(format!("Incompatible units: {:?} and {:?}", u_a, u_b))
                     }
                 }
                 _ => Err("Cannot mix unitless and unit values".to_string()),
@@ -159,7 +159,7 @@ fn eval<'src>(
             let (val_a, unit_a) = eval(a, vars, unit)?;
             let (val_b, unit_b) = eval(b, vars, unit)?;
             let new_unit = match (unit_a, unit_b) {
-                (Some(u_a), Some(u_b)) => match unit.unit_map.get(&(u_a, op, u_b)) {
+                (Some(u_a), Some(u_b)) => match unit.derived_units_map().get(&(u_a, op, u_b)) {
                     Some(&new_unit) => Some(new_unit),
                     _ => return Err(format!("Cannot evaluate {:?} {} {:?}", u_a, op, u_b)),
                 },
@@ -209,7 +209,14 @@ mod tests {
         let expr = "1 m + 2 cm";
         let parsed = parser().parse(expr).unwrap();
         let mut vars = Vec::new();
-        let unit_definitions = UnitDefinitions::default();
+        let unit_definitions = toml::from_str(
+            r#"
+[length]
+m = { name = "meter", symbol = "m" }
+cm = { name = "centimeter", symbol = "cm", factor = 0.01 }
+"#,
+        )
+        .unwrap();
         let unit = Unit::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
         assert_eq!(result, Ok((1.02, Some("m"))),);

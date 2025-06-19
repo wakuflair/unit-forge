@@ -1,13 +1,13 @@
 use color_eyre::eyre::{Ok, Result};
-use unit_forge_lib::UnitDefinitions;
+use unit_forge_lib::{Unit, UnitDefinitions};
 
 fn main() -> Result<()> {
     color_eyre::install()?;
     let unit_definitions = parse_unit_definitions()?;
     println!("Unit Definitions: {:#?}", unit_definitions);
 
-    let map = unit_forge_lib::construct_unit_translation_map(&unit_definitions)?;
-    println!("Unit Translation Map: {:#?}", map);
+    let unit = Unit::new(&unit_definitions)?;
+    println!("Unit: {:#?}", unit);
 
     Ok(())
 }
