@@ -4,7 +4,7 @@ use crate::unit_table::UnitTable;
 
 #[derive(Debug)]
 enum Expr<'src> {
-    Num(f64, Option<&'src str>), // Store the unit as a string alongside the number
+    Num(f64, &'src str), // Store the unit as a string alongside the number
     Var(&'src str),
 
     Neg(Box<Expr<'src>>),
@@ -27,7 +27,9 @@ fn parser<'src>() -> impl Parser<'src, &'src str, Expr<'src>> {
     let expr = recursive(|expr| {
         let int = text::int(10)
             .then(ident.or_not())
-            .map(|(num, unit): (&str, Option<&str>)| Expr::Num(num.parse().unwrap(), unit));
+            .map(|(num, unit): (&str, Option<&str>)| {
+                Expr::Num(num.parse().unwrap(), unit.unwrap_or("")) // Default to empty unit if no unit is provided
+            });
 
         let atom = int
             .or(expr.delimited_by(just('('), just(')')))
@@ -84,92 +86,49 @@ fn parser<'src>() -> impl Parser<'src, &'src str, Expr<'src>> {
 
 fn eval<'src>(
     expr: &'src Expr<'src>,
-    vars: &mut Vec<(&'src str, (f64, Option<&'src str>))>,
+    vars: &mut Vec<(&'src str, (f64, &'src str))>,
     unit_table: &'src UnitTable,
-) -> Result<(f64, Option<&'src str>), String> {
+) -> Result<(f64, &'src str), String> {
     match expr {
-        Expr::Num(num, unit_str) => {
-            if let Some(u) = unit_str {
-                match unit_table.base_units_map().get(u) {
-                    Some(&(factor, base_unit)) => Ok(((*num * factor), Some(base_unit))),
-                    None => Err(format!("Unknown unit: {}", u)),
-                }
-            } else {
-                Ok((*num, *unit_str))
-            }
-        }
+        Expr::Num(num, unit_str) => match unit_table.base_units_map().get(unit_str) {
+            Some(&(factor, base_unit)) => Ok(((*num * factor), base_unit)),
+            None => Err(format!("Unknown unit: {}", unit_str)),
+        },
         Expr::Neg(a) => {
             let (val, unit) = eval(a, vars, unit_table)?;
             Ok((-val, unit))
         }
         Expr::Add(a, b) | Expr::Sub(a, b) => {
+            let (val_a, unit_a) = eval(a, vars, unit_table)?;
+            let (val_b, unit_b) = eval(b, vars, unit_table)?;
+
             let op = if matches!(expr, Expr::Add(_, _)) {
                 "+"
             } else {
                 "-"
             };
+            if unit_a != unit_b {
+                return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b));
+            }
+            let result = if op == "+" {
+                val_a + val_b
+            } else {
+                val_a - val_b
+            };
+
+            Ok((result, unit_a))
+        }
+        Expr::Mul(a, b) | Expr::Div(a, b) => {
             let (val_a, unit_a) = eval(a, vars, unit_table)?;
             let (val_b, unit_b) = eval(b, vars, unit_table)?;
 
-            match (unit_a, unit_b) {
-                (None, None) => Ok((
-                    if op == "+" {
-                        val_a + val_b
-                    } else {
-                        val_a - val_b
-                    },
-                    None,
-                )),
-                (Some(u_a), Some(u_b)) => {
-                    // Find the category that contains both units
-                    let category = unit_table
-                        .unit_definitions()
-                        .categories
-                        .iter()
-                        .find(|(_, units)| units.contains_key(u_a) && units.contains_key(u_b))
-                        .map(|(cat, _)| cat);
-
-                    if let Some(category) = category {
-                        let units = &unit_table.unit_definitions().categories[category];
-                        let unit_a = &units[u_a];
-                        let unit_b = &units[u_b];
-
-                        // Convert unit_b to unit_a
-                        let converted_b = val_b * unit_b.factor / unit_a.factor;
-                        let op = if matches!(expr, Expr::Add(_, _)) {
-                            "+"
-                        } else {
-                            "-"
-                        };
-                        let result = if op == "+" {
-                            val_a + converted_b
-                        } else {
-                            val_a - converted_b
-                        };
-
-                        Ok((result, Some(u_a)))
-                    } else {
-                        Err(format!("Cannot evaluate {:?} {} {:?}", u_a, op, u_b))
-                    }
-                }
-                _ => Err("Cannot mix unitless and unit values".to_string()),
-            }
-        }
-        Expr::Mul(a, b) | Expr::Div(a, b) => {
             let op = if matches!(expr, Expr::Mul(_, _)) {
                 "*"
             } else {
                 "/"
             };
-            let (val_a, unit_a) = eval(a, vars, unit_table)?;
-            let (val_b, unit_b) = eval(b, vars, unit_table)?;
-            let new_unit = match (unit_a, unit_b) {
-                (Some(u_a), Some(u_b)) => match unit_table.derived_units_map().get(&(u_a, op, u_b))
-                {
-                    Some(&new_unit) => Some(new_unit),
-                    _ => return Err(format!("Cannot evaluate {:?} {} {:?}", u_a, op, u_b)),
-                },
-                (None, None) => None,
+            let new_unit = match unit_table.derived_units_map().get(&(unit_a, op, unit_b)) {
+                Some(&new_unit) => new_unit,
                 _ => return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b)),
             };
             if op == "*" {
@@ -209,7 +168,7 @@ mod tests {
         let unit_definitions = UnitDefinitions::default();
         let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
-        assert_eq!(result, Ok((7.0, None)));
+        assert_eq!(result, Ok((7.0, "")));
     }
 
     #[test]
@@ -227,7 +186,7 @@ cm = { name = "centimeter", symbol = "cm", factor = 0.01 }
         .unwrap();
         let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
-        assert_eq!(result, Ok((1.02, Some("m"))),);
+        assert_eq!(result, Ok((1.02, "m")),);
     }
 
     #[test]
@@ -248,7 +207,7 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
 
         let unit = UnitTable::new(&unit_definitions).unwrap();
         let result = eval(&parsed, &mut vars, &unit);
-        assert_eq!(result, Ok((7.0, Some("cm2"))),);
+        assert_eq!(result, Ok((7.0, "cm2")),);
     }
 
     #[test]

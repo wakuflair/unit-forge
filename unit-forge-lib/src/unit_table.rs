@@ -136,6 +136,10 @@ fn construct_unit_translation_map(
         }
     }
 
+    // Add empty unit
+    map.insert(("", "*", ""), "");
+    map.insert(("", "/", ""), "");
+
     Ok(map)
 }
 
@@ -152,6 +156,9 @@ fn construct_base_units_map(
             base_units_map.insert(unit_key, (unit_def.factor, base_unit));
         }
     }
+
+    // Add empty base unit
+    base_units_map.insert("", (1.0, ""));
 
     Ok(base_units_map)
 }
@@ -270,5 +277,16 @@ m2 = { name = "square meter", symbol = "m²", derived = "x * x" }
         let err = construct_unit_translation_map(&definitions).unwrap_err();
         assert!(matches!(err, DefinitionError::UnitNotFound(unit, expr, category) 
             if unit == "x" && expr == "x * x" && category == "area"));
+    }
+
+    #[test]
+    fn should_add_empty_unit() {
+        let definitions = UnitDefinitions::default();
+        let unit_table = UnitTable::new(&definitions).unwrap();
+        // assert that the empty unit is present in the derived units map
+        assert!(unit_table.derived_units_map().contains_key(&("", "*", "")));
+        assert!(unit_table.derived_units_map().contains_key(&("", "/", "")));
+        // assert that the empty unit is present in the base units map
+        assert!(unit_table.base_units_map().contains_key(""));
     }
 }
