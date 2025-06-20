@@ -85,7 +85,7 @@ fn parser<'src>() -> impl Parser<'src, &'src str, Expr<'src>> {
 }
 
 fn eval<'src>(
-    expr: &'src Expr<'src>,
+    expr: &'src Expr,
     vars: &mut Vec<(&'src str, (f64, &'src str))>,
     unit_table: &'src UnitTable,
 ) -> Result<(f64, &'src str), String> {
@@ -129,7 +129,9 @@ fn eval<'src>(
             };
             let new_unit = match unit_table.derived_units_map().get(&(unit_a, op, unit_b)) {
                 Some(&new_unit) => new_unit,
-                _ => return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b)),
+                None if unit_a.is_empty() => unit_b,
+                None if unit_b.is_empty() => unit_a,
+                None => return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b)),
             };
             if op == "*" {
                 Ok((val_a * val_b, new_unit))
@@ -160,22 +162,27 @@ mod tests {
 
     use super::*;
 
+    fn parse_and_eval<'a>(
+        expr: &'a str,
+        unit_definitions: &'a UnitDefinitions,
+    ) -> Result<(f64, String), String> {
+        let parsed = parser().parse(expr).unwrap();
+        let mut vars = Vec::new();
+        let unit = UnitTable::new(unit_definitions).unwrap();
+        eval(&parsed, &mut vars, &unit).map(|(val, unit)| (val, unit.to_string()))
+    }
+
     #[test]
     fn test_eval_without_unit() {
         let expr = "1 + 2 * 3";
-        let parsed = parser().parse(expr).unwrap();
-        let mut vars = Vec::new();
         let unit_definitions = UnitDefinitions::default();
-        let unit = UnitTable::new(&unit_definitions).unwrap();
-        let result = eval(&parsed, &mut vars, &unit);
-        assert_eq!(result, Ok((7.0, "")));
+        let result = parse_and_eval(expr, &unit_definitions);
+        assert_eq!(result, Ok((7.0, "".to_string())));
     }
 
     #[test]
     fn test_eval_with_unit_definitions() {
         let expr = "1 m + 2 cm";
-        let parsed = parser().parse(expr).unwrap();
-        let mut vars = Vec::new();
         let unit_definitions = toml::from_str(
             r#"
 [length]
@@ -184,16 +191,13 @@ cm = { name = "centimeter", symbol = "cm", factor = 0.01 }
 "#,
         )
         .unwrap();
-        let unit = UnitTable::new(&unit_definitions).unwrap();
-        let result = eval(&parsed, &mut vars, &unit);
-        assert_eq!(result, Ok((1.02, "m")),);
+        let result = parse_and_eval(expr, &unit_definitions);
+        assert_eq!(result, Ok((1.02, "m".to_string())),);
     }
 
     #[test]
     fn test_eval_with_unit_map() {
         let expr = "1 cm2 + 2 cm * 3cm";
-        let parsed = parser().parse(expr).unwrap();
-        let mut vars = Vec::new();
         let unit_definitions = toml::from_str(
             r#"
 [length]
@@ -205,16 +209,13 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         )
         .unwrap();
 
-        let unit = UnitTable::new(&unit_definitions).unwrap();
-        let result = eval(&parsed, &mut vars, &unit);
-        assert_eq!(result, Ok((7.0, "cm2")),);
+        let result = parse_and_eval(expr, &unit_definitions);
+        assert_eq!(result, Ok((7.0, "cm2".to_string())));
     }
 
     #[test]
     fn test_eval_incompatible_units() {
         let expr = "1 m + 2 second";
-        let parsed = parser().parse(expr).unwrap();
-        let mut vars = Vec::new();
         let unit_definitions = toml::from_str(
             r#"
 [length]
@@ -226,8 +227,7 @@ second = { name = "second", symbol = "s" }
         )
         .unwrap();
 
-        let unit = UnitTable::new(&unit_definitions).unwrap();
-        let result = eval(&parsed, &mut vars, &unit);
+        let result = parse_and_eval(expr, &unit_definitions);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" + \"second\"");
     }
@@ -235,8 +235,6 @@ second = { name = "second", symbol = "s" }
     #[test]
     fn test_eval_invalid_unit_multiplication() {
         let expr = "2 m * 3 second";
-        let parsed = parser().parse(expr).unwrap();
-        let mut vars = Vec::new();
         let unit_definitions = toml::from_str(
             r#"
 [length]
@@ -247,8 +245,7 @@ second = { name = "second", symbol = "s" }
 "#,
         )
         .unwrap();
-        let unit = UnitTable::new(&unit_definitions).unwrap();
-        let result = eval(&parsed, &mut vars, &unit);
+        let result = parse_and_eval(expr, &unit_definitions);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" * \"second\"");
     }
@@ -256,11 +253,8 @@ second = { name = "second", symbol = "s" }
     #[test]
     fn test_eval_unknown_variable() {
         let expr = "x + 2";
-        let parsed = parser().parse(expr).unwrap();
-        let mut vars = Vec::new();
         let unit_definitions = UnitDefinitions::default();
-        let unit = UnitTable::new(&unit_definitions).unwrap();
-        let result = eval(&parsed, &mut vars, &unit);
+        let result = parse_and_eval(expr, &unit_definitions);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Cannot find variable `x`"));
     }
@@ -268,8 +262,6 @@ second = { name = "second", symbol = "s" }
     #[test]
     fn test_eval_let_with_incompatible_units() {
         let expr = "let x = 5 m; x + 3 second";
-        let parsed = parser().parse(expr).unwrap();
-        let mut vars = Vec::new();
         let unit_definitions = toml::from_str(
             r#"
 [length]
@@ -280,9 +272,27 @@ second = { name = "second", symbol = "s" }
 "#,
         )
         .unwrap();
-        let unit = UnitTable::new(&unit_definitions).unwrap();
-        let result = eval(&parsed, &mut vars, &unit);
+        let result = parse_and_eval(expr, &unit_definitions);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" + \"second\"");
+    }
+
+    #[test]
+    fn test_complex_expressions() {
+        let str = std::fs::read_to_string("../unit_definitions/basic.ud").unwrap();
+        let unit_definitions = toml::from_str(&str).unwrap();
+
+        let result =
+            parse_and_eval("let x = 2 m; let y = 3 cm; x + y * 4", &unit_definitions).unwrap();
+        assert_eq!(result, (2.12, "m".to_string()));
+
+        let result = parse_and_eval(
+            "((1km + 2cm) * 2 * 3m + 4cm2) * 5m + 6m3",
+            &unit_definitions,
+        );
+        assert_eq!(result, Ok((30006.602, "m3".to_string())));
+
+        let result = parse_and_eval("360 km / 2hour", &unit_definitions);
+        assert_eq!(result, Ok((50.0, "mps".to_string())));
     }
 }

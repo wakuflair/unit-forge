@@ -136,10 +136,6 @@ fn construct_unit_translation_map(
         }
     }
 
-    // Add empty unit
-    map.insert(("", "*", ""), "");
-    map.insert(("", "/", ""), "");
-
     Ok(map)
 }
 
@@ -283,10 +279,6 @@ m2 = { name = "square meter", symbol = "m²", derived = "x * x" }
     fn should_add_empty_unit() {
         let definitions = UnitDefinitions::default();
         let unit_table = UnitTable::new(&definitions).unwrap();
-        // assert that the empty unit is present in the derived units map
-        assert!(unit_table.derived_units_map().contains_key(&("", "*", "")));
-        assert!(unit_table.derived_units_map().contains_key(&("", "/", "")));
-        // assert that the empty unit is present in the base units map
         assert!(unit_table.base_units_map().contains_key(""));
     }
 }
