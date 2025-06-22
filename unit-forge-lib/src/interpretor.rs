@@ -17,10 +17,12 @@ enum Expr<'src> {
     Mul(Box<Expr<'src>>, Box<Expr<'src>>),
     Div(Box<Expr<'src>>, Box<Expr<'src>>),
 
-    Let {
+    Assign {
         name: &'src str,
         rhs: Box<Expr<'src>>,
     },
+
+    To(Box<Expr<'src>>, Option<&'src str>),
 }
 
 pub struct Interpretor<'a> {
@@ -47,13 +49,18 @@ impl<'a> Interpretor<'a> {
                         .map(|err| (err.span().into_range(), err.to_string()))
                         .collect::<Vec<_>>()
                 })?;
-        self.eval_expr(&parsed)
-            .map_err(|err| vec![(0..command.len(), err)])
+        let result = self
+            .eval_expr(&parsed)
+            .map_err(|err| vec![(0..command.len(), err)])?;
+
+        self.vars.insert("$".to_string(), result.clone());
+
+        Ok(result)
     }
 
     #[allow(clippy::let_and_return)]
     fn parser<'src>(&self) -> impl Parser<'src, &'src str, Expr<'src>, Err<Simple<'src, char>>> {
-        let ident = text::ascii::ident().padded();
+        let ident = text::ascii::ident().or(just("$")).padded();
 
         let expr = recursive(|expr| {
             let int =
@@ -97,24 +104,26 @@ impl<'a> Interpretor<'a> {
             sum
         });
 
-        let r#let = ident
+        let assign = ident
             .then_ignore(just('='))
             .then(expr.clone())
-            .map(|(name, rhs)| Expr::Let {
+            .map(|(name, rhs)| Expr::Assign {
                 name,
                 rhs: Box::new(rhs),
             });
 
-        let decl = r#let.or(expr).padded();
+        let to = expr
+            .then(just("to").padded().ignore_then(ident).or_not())
+            .map(|(expr, unit)| Expr::To(Box::new(expr), unit));
 
-        decl
+        assign.or(to).padded()
     }
 
     fn eval_expr<'src>(&mut self, expr: &Expr<'src>) -> Result<(f64, String), String> {
         match expr {
             Expr::Num(num, unit_str) => match self.unit_table.base_units_map().get(unit_str) {
                 Some(&(factor, base_unit)) => Ok(((*num * factor), base_unit.to_string())),
-                None => Err(format!("Unknown unit: {}", unit_str)),
+                None => Err(format!("Unknown unit: \"{}\"", unit_str)),
             },
             Expr::Neg(a) => {
                 let (val, unit) = self.eval_expr(a)?;
@@ -130,7 +139,10 @@ impl<'a> Interpretor<'a> {
                     "-"
                 };
                 if unit_a != unit_b {
-                    return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b));
+                    return Err(format!(
+                        "Cannot evaluate \"{:?} {} {:?}\"",
+                        unit_a, op, unit_b
+                    ));
                 }
                 let result = if op == "+" {
                     val_a + val_b
@@ -158,7 +170,10 @@ impl<'a> Interpretor<'a> {
                     None if unit_a.is_empty() => unit_b,
                     None if unit_b.is_empty() => unit_a,
                     None => {
-                        return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b))
+                        return Err(format!(
+                            "Cannot evaluate \"{:?} {} {:?}\"",
+                            unit_a, op, unit_b
+                        ))
                     }
                 };
                 if op == "*" {
@@ -171,13 +186,34 @@ impl<'a> Interpretor<'a> {
                 if let Some(val) = self.vars.get(*name) {
                     Ok((val.0, val.1.to_string()))
                 } else {
-                    Err(format!("Cannot find variable `{name}` in scope"))
+                    Err(format!("Cannot find variable \"{name}\" in scope"))
                 }
             }
-            Expr::Let { name, rhs } => {
+            Expr::Assign { name, rhs } => {
+                if *name == "$" {
+                    return Err("Cannot assign to reserved variable \"$\"".to_string());
+                }
                 let rhs = self.eval_expr(rhs)?;
                 self.vars.insert(name.to_string(), rhs.clone());
                 Ok(rhs)
+            }
+            Expr::To(expr, unit) => {
+                let (val, cur_unit) = self.eval_expr(expr)?;
+                if let Some(unit_str) = unit {
+                    if let Some(&(factor, base_unit)) =
+                        self.unit_table.base_units_map().get(unit_str)
+                    {
+                        if cur_unit != base_unit {
+                            Err(format!("Cannot convert to unit \"{}\"", *unit_str))
+                        } else {
+                            Ok((val / factor, unit_str.to_string()))
+                        }
+                    } else {
+                        Err(format!("Unknown unit {}", unit_str))
+                    }
+                } else {
+                    Ok((val, cur_unit))
+                }
             }
         }
     }
@@ -332,5 +368,43 @@ second = { name = "second", symbol = "s" }
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors[0].1, "found end of input at 7..7");
+    }
+
+    #[test]
+    fn test_to_expr() {
+        let expr = "1 m to cm";
+        let unit_definitions = toml::from_str(
+            r#"
+[length]
+m = { name = "meter", symbol = "m" }
+cm = { name = "centimeter", symbol = "cm", factor = 0.01 }
+"#,
+        )
+        .unwrap();
+
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
+        let result = interceptor.execute_command(expr);
+        assert_eq!(result, Ok((100.0, "cm".to_string())));
+    }
+
+    #[test]
+    fn test_to_expr_with_incompatible_units() {
+        let expr = "1 m to sec";
+        let unit_definitions = toml::from_str(
+            r#"
+[length]
+m = { name = "meter", symbol = "m" }
+
+[time]
+sec = { name = "second", symbol = "s" }
+"#,
+        )
+        .unwrap();
+
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
+        let result = interceptor.execute_command(expr);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].1, "Cannot convert to unit \"sec\"");
     }
 }

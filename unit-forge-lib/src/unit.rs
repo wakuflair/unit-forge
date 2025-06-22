@@ -4,8 +4,8 @@ use crate::unit_definition::{UnitDefinition, UnitDefinitions};
 
 use super::*;
 
-pub type UnitMapType<'a> = HashMap<(&'a str, &'a str, &'a str), &'a str>;
-pub type BaseUnitMapType<'a> = HashMap<&'a str, (f64, &'a str)>;
+pub type UnitMapType<'a> = HashMap<(&'a str, &'a str, &'a str), &'a str>;    // (unit_key, op, unit_key) -> unit_key, e.g.: ("m", "*", "m") -> "m2"
+pub type BaseUnitMapType<'a> = HashMap<&'a str, (f64, &'a str)>;    // (unit_key) -> (factor, base_unit_key), e.g.: ("min", (60, "second"))
 
 #[derive(Debug)]
 pub struct UnitTable<'a> {
