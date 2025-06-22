@@ -1,6 +1,8 @@
-use chumsky::prelude::*;
+use chumsky::{extra::Err, prelude::*};
 
 use crate::{unit::UnitTable, unit_definition::UnitDefinitions, DefinitionError};
+
+pub type Error = (std::ops::Range<usize>, String);
 
 #[derive(Debug)]
 enum Expr<'src> {
@@ -34,17 +36,22 @@ impl<'a> Interceptor<'a> {
         })
     }
 
-    pub fn execute_command(&mut self, command: &'a str) -> Result<(f64, String), String> {
-        let parsed = self
-            .parser()
-            .parse(command)
-            .into_result()
-            .map_err(|_| "Parsing failed".to_string())?;
+    pub fn execute_command(&mut self, command: &'a str) -> Result<(f64, String), Vec<Error>> {
+        let parsed =
+            self.parser()
+                .parse(command)
+                .into_result()
+                .map_err(|errs: Vec<Simple<'_, char>>| {
+                    errs.into_iter()
+                        .map(|err| (err.span().into_range(), err.to_string()))
+                        .collect::<Vec<_>>()
+                })?;
         self.eval_expr(&parsed)
+            .map_err(|err| vec![(0..command.len(), err)])
     }
 
     #[allow(clippy::let_and_return)]
-    fn parser(&self) -> impl Parser<'a, &'a str, Expr<'a>> {
+    fn parser(&self) -> impl Parser<'a, &'a str, Expr<'a>, Err<Simple<'a, char>>> {
         let ident = text::ascii::ident().padded();
 
         let expr = recursive(|expr| {
@@ -249,7 +256,8 @@ second = { name = "second", symbol = "s" }
         let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" + \"second\"");
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].1, "Cannot evaluate \"m\" + \"second\"");
     }
 
     #[test]
@@ -268,7 +276,8 @@ second = { name = "second", symbol = "s" }
         let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" * \"second\"");
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].1, "Cannot evaluate \"m\" * \"second\"");
     }
 
     #[test]
@@ -278,7 +287,8 @@ second = { name = "second", symbol = "s" }
         let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Cannot find variable `x`"));
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].1, "Cannot find variable `x` in scope");
     }
 
     #[test]
@@ -297,7 +307,8 @@ second = { name = "second", symbol = "s" }
         let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Cannot evaluate \"m\" + \"second\"");
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].1, "Cannot evaluate \"m\" + \"second\"");
     }
 
     #[test]
@@ -318,5 +329,15 @@ second = { name = "second", symbol = "s" }
         let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command("360 km / 2hour");
         assert_eq!(result, Ok((50.0, "mps".to_string())));
+    }
+
+    #[test]
+    fn should_show_error_for_invalid_expression() {
+        let unit_definitions = UnitDefinitions::default();
+        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let result = interceptor.execute_command("1 + 2 *");
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].1, "found end of input at 7..7");
     }
 }
