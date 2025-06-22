@@ -12,7 +12,7 @@ m3 = { name = "cubic meter", symbol = "m³", derived = "m * m * m" }
 cm3 = { name = "cubic center meter", symbol = "cm³", factor = 0.000001 }
 
 [time]
-second = { name = "second", symbol = "s" }
+sec = { name = "second", symbol = "s" }
 min = { name = "minute", symbol = "m", factor = 60 }
 hour = { name = "hour", symbol = "h", factor = 3600 }
 day = { name = "day", symbol = "d", factor = 86400 }               # 1 * 60 * 60 * 24

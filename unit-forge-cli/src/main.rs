@@ -12,7 +12,7 @@ fn main() -> Result<()> {
         std::io::stdin().read_line(&mut input)?;
         match interpretor.execute_command(&input) {
             Ok(val) => {
-                println!("Result: {:?}", val);
+                println!("{} {}", val.0, val.1);
             }
             Err(e) => {
                 eprintln!("Error: {:?}", e);

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chumsky::{extra::Err, prelude::*};
 
 use crate::{unit::UnitTable, unit_definition::UnitDefinitions, DefinitionError};
@@ -24,7 +26,7 @@ enum Expr<'src> {
 
 pub struct Interpretor<'a> {
     unit_table: UnitTable<'a>,
-    vars: Vec<(String, (f64, String))>,
+    vars: HashMap<String, (f64, String)>,
 }
 
 impl<'a> Interpretor<'a> {
@@ -32,7 +34,7 @@ impl<'a> Interpretor<'a> {
         let unit_table = UnitTable::new(unit_definitions)?;
         Ok(Self {
             unit_table,
-            vars: Vec::new(),
+            vars: HashMap::new(),
         })
     }
 
@@ -173,7 +175,7 @@ impl<'a> Interpretor<'a> {
                 }
             }
             Expr::Var(name) => {
-                if let Some((_, val)) = self.vars.iter().rev().find(|(var, _)| var == name) {
+                if let Some(val) = self.vars.get(*name) {
                     Ok((val.0, val.1.to_string()))
                 } else {
                     Err(format!("Cannot find variable `{name}` in scope"))
@@ -181,10 +183,8 @@ impl<'a> Interpretor<'a> {
             }
             Expr::Let { name, rhs, then } => {
                 let rhs = self.eval_expr(rhs)?;
-                self.vars.push((name.to_string(), rhs));
-                let output = self.eval_expr(then);
-                self.vars.pop();
-                output
+                self.vars.insert(name.to_string(), rhs);
+                self.eval_expr(then)
             }
         }
     }
