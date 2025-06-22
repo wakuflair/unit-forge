@@ -34,7 +34,7 @@ impl<'a> Interceptor<'a> {
         })
     }
 
-    pub fn execute_command(&mut self, command: &str) -> Result<(f64, String), String> {
+    pub fn execute_command(&mut self, command: &'a str) -> Result<(f64, String), String> {
         let parsed = self
             .parser()
             .parse(command)
@@ -108,7 +108,7 @@ impl<'a> Interceptor<'a> {
         decl
     }
 
-    fn eval_expr(&mut self, expr: &Expr) -> Result<(f64, String), String> {
+    fn eval_expr(&mut self, expr: &Expr<'a>) -> Result<(f64, String), String> {
         match expr {
             Expr::Num(num, unit_str) => match self.unit_table.base_units_map().get(unit_str) {
                 Some(&(factor, base_unit)) => Ok(((*num * factor), base_unit.to_string())),
@@ -136,7 +136,7 @@ impl<'a> Interceptor<'a> {
                     val_a - val_b
                 };
 
-                Ok((result, unit_a))
+                Ok((result, unit_b))
             }
             Expr::Mul(a, b) | Expr::Div(a, b) => {
                 let (val_a, unit_a) = self.eval_expr(a)?;
@@ -153,8 +153,8 @@ impl<'a> Interceptor<'a> {
                     unit_b.as_ref(),
                 )) {
                     Some(&new_unit) => new_unit.to_string(),
-                    None if unit_a.is_empty() => unit_b.to_string(),
-                    None if unit_b.is_empty() => unit_a.to_string(),
+                    None if unit_a.is_empty() => unit_b,
+                    None if unit_b.is_empty() => unit_a,
                     None => {
                         return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b))
                     }
@@ -210,7 +210,7 @@ cm = { name = "centimeter", symbol = "cm", factor = 0.01 }
         .unwrap();
         let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
-        assert_eq!(result, Ok((1.02, "m".to_string())),);
+        assert_eq!(result, Ok((1.02, "m".to_string())));
     }
 
     #[test]
