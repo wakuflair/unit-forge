@@ -113,7 +113,7 @@ impl<'a> Interpretor<'a> {
             });
 
         let to = expr
-            .then(just("to").padded().ignore_then(ident).or_not())
+            .then(just(">>").padded().ignore_then(ident).or_not())
             .map(|(expr, unit)| Expr::To(Box::new(expr), unit));
 
         assign.or(to).padded()
