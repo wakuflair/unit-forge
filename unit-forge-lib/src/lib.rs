@@ -4,6 +4,7 @@ mod unit_definition;
 
 pub use interpretor::*;
 use thiserror::Error;
+pub use unit_definition::*;
 
 #[derive(Debug, Error)]
 pub enum DefinitionError {

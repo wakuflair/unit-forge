@@ -22,12 +22,12 @@ enum Expr<'src> {
     },
 }
 
-pub struct Interceptor<'a> {
+pub struct Interpretor<'a> {
     unit_table: UnitTable<'a>,
     vars: Vec<(String, (f64, String))>,
 }
 
-impl<'a> Interceptor<'a> {
+impl<'a> Interpretor<'a> {
     pub fn new(unit_definitions: &'a UnitDefinitions) -> Result<Self, DefinitionError> {
         let unit_table = UnitTable::new(unit_definitions)?;
         Ok(Self {
@@ -36,7 +36,7 @@ impl<'a> Interceptor<'a> {
         })
     }
 
-    pub fn execute_command(&mut self, command: &'a str) -> Result<(f64, String), Vec<Error>> {
+    pub fn execute_command(&mut self, command: &str) -> Result<(f64, String), Vec<Error>> {
         let parsed =
             self.parser()
                 .parse(command)
@@ -51,7 +51,7 @@ impl<'a> Interceptor<'a> {
     }
 
     #[allow(clippy::let_and_return)]
-    fn parser(&self) -> impl Parser<'a, &'a str, Expr<'a>, Err<Simple<'a, char>>> {
+    fn parser<'src>(&self) -> impl Parser<'src, &'src str, Expr<'src>, Err<Simple<'src, char>>> {
         let ident = text::ascii::ident().padded();
 
         let expr = recursive(|expr| {
@@ -115,7 +115,7 @@ impl<'a> Interceptor<'a> {
         decl
     }
 
-    fn eval_expr(&mut self, expr: &Expr<'a>) -> Result<(f64, String), String> {
+    fn eval_expr<'src>(&mut self, expr: &Expr<'src>) -> Result<(f64, String), String> {
         match expr {
             Expr::Num(num, unit_str) => match self.unit_table.base_units_map().get(unit_str) {
                 Some(&(factor, base_unit)) => Ok(((*num * factor), base_unit.to_string())),
@@ -199,7 +199,7 @@ mod tests {
     fn test_eval_without_unit() {
         let expr = "1 + 2 * 3";
         let unit_definitions = UnitDefinitions::default();
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert_eq!(result, Ok((7.0, "".to_string())));
     }
@@ -215,7 +215,7 @@ cm = { name = "centimeter", symbol = "cm", factor = 0.01 }
 "#,
         )
         .unwrap();
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert_eq!(result, Ok((1.02, "m".to_string())));
     }
@@ -234,7 +234,7 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
         )
         .unwrap();
 
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert_eq!(result, Ok((7.0, "cm2".to_string())));
     }
@@ -253,7 +253,7 @@ second = { name = "second", symbol = "s" }
         )
         .unwrap();
 
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -273,7 +273,7 @@ second = { name = "second", symbol = "s" }
 "#,
         )
         .unwrap();
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -284,7 +284,7 @@ second = { name = "second", symbol = "s" }
     fn test_eval_unknown_variable() {
         let expr = "x + 2";
         let unit_definitions = UnitDefinitions::default();
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -304,7 +304,7 @@ second = { name = "second", symbol = "s" }
 "#,
         )
         .unwrap();
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
         let errors = result.unwrap_err();
@@ -316,17 +316,17 @@ second = { name = "second", symbol = "s" }
         let str = std::fs::read_to_string("../unit_definitions/basic.ud").unwrap();
         let unit_definitions = toml::from_str(&str).unwrap();
 
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor
             .execute_command("let x = 2 m; let y = 3 cm; x + y * 4")
             .unwrap();
         assert_eq!(result, (2.12, "m".to_string()));
 
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command("((1km + 2cm) * 2 * 3m + 4cm2) * 5m + 6m3");
         assert_eq!(result, Ok((30006.602, "m3".to_string())));
 
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command("360 km / 2hour");
         assert_eq!(result, Ok((50.0, "mps".to_string())));
     }
@@ -334,7 +334,7 @@ second = { name = "second", symbol = "s" }
     #[test]
     fn should_show_error_for_invalid_expression() {
         let unit_definitions = UnitDefinitions::default();
-        let mut interceptor = Interceptor::new(&unit_definitions).unwrap();
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
         let result = interceptor.execute_command("1 + 2 *");
         assert!(result.is_err());
         let errors = result.unwrap_err();

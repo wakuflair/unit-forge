@@ -1,31 +1,39 @@
-use color_eyre::eyre::{Ok, Result};
+use color_eyre::eyre::Result;
+use unit_forge_lib::{Interpretor, UnitDefinitions};
 
-fn main() {}
+fn main() -> Result<()> {
+    color_eyre::install()?;
+    let unit_definitions = parse_unit_definitions()?;
+    let mut interpretor = Interpretor::new(&unit_definitions)?;
 
-// fn main() -> Result<()> {
-//     color_eyre::install()?;
-//     let unit_definitions = parse_unit_definitions()?;
-//     println!("Unit Definitions: {:#?}", unit_definitions);
+    // read expressions from stdin
+    loop {
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        match interpretor.execute_command(&input) {
+            Ok(val) => {
+                println!("Result: {:?}", val);
+            }
+            Err(e) => {
+                eprintln!("Error: {:?}", e);
+            }
+        }
+    }
+}
 
-//     let unit = UnitTable::new(&unit_definitions)?;
-//     println!("Unit: {:#?}", unit);
+fn parse_unit_definitions() -> Result<UnitDefinitions> {
+    let entries = std::fs::read_dir("unit_definitions")?;
 
-//     Ok(())
-// }
+    let mut all_defs = UnitDefinitions::default();
 
-// fn parse_unit_definitions() -> Result<UnitDefinitions> {
-//     let entries = std::fs::read_dir("unit_definitions")?;
+    for entry in entries {
+        let path = entry?.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("ud") {
+            let content = std::fs::read_to_string(&path)?;
+            let defs: UnitDefinitions = toml::from_str(&content)?;
+            all_defs.categories.extend(defs.categories);
+        }
+    }
 
-//     let mut all_defs = UnitDefinitions::default();
-
-//     for entry in entries {
-//         let path = entry?.path();
-//         if path.extension().and_then(|s| s.to_str()) == Some("ud") {
-//             let content = std::fs::read_to_string(&path)?;
-//             let defs: UnitDefinitions = toml::from_str(&content)?;
-//             all_defs.categories.extend(defs.categories);
-//         }
-//     }
-
-//     Ok(all_defs)
-// }
+    Ok(all_defs)
+}
