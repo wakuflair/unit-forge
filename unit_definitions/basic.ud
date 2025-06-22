@@ -18,5 +18,5 @@ hour = { name = "hour", symbol = "h", factor = 3600 }
 day = { name = "day", symbol = "d", factor = 86400 }               # 1 * 60 * 60 * 24
 
 [speed]
-mps = { name = "meter per second", symbol = "m/s", derived = "m / second" }
+mps = { name = "meter per second", symbol = "m/s", derived = "m / sec" }
 kmph = { name = "kilometer per hour",  symbol = "km/h", factor = 3.6 }

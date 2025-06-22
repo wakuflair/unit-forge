@@ -20,7 +20,6 @@ enum Expr<'src> {
     Let {
         name: &'src str,
         rhs: Box<Expr<'src>>,
-        then: Box<Expr<'src>>,
     },
 }
 
@@ -98,21 +97,15 @@ impl<'a> Interpretor<'a> {
             sum
         });
 
-        let decl = recursive(|decl| {
-            let r#let = text::ascii::keyword("let")
-                .ignore_then(ident)
-                .then_ignore(just('='))
-                .then(expr.clone())
-                .then_ignore(just(';'))
-                .then(decl.clone())
-                .map(|((name, rhs), then)| Expr::Let {
-                    name,
-                    rhs: Box::new(rhs),
-                    then: Box::new(then),
-                });
+        let r#let = ident
+            .then_ignore(just('='))
+            .then(expr.clone())
+            .map(|(name, rhs)| Expr::Let {
+                name,
+                rhs: Box::new(rhs),
+            });
 
-            r#let.or(expr).padded()
-        });
+        let decl = r#let.or(expr).padded();
 
         decl
     }
@@ -181,10 +174,10 @@ impl<'a> Interpretor<'a> {
                     Err(format!("Cannot find variable `{name}` in scope"))
                 }
             }
-            Expr::Let { name, rhs, then } => {
+            Expr::Let { name, rhs } => {
                 let rhs = self.eval_expr(rhs)?;
-                self.vars.insert(name.to_string(), rhs);
-                self.eval_expr(then)
+                self.vars.insert(name.to_string(), rhs.clone());
+                Ok(rhs)
             }
         }
     }

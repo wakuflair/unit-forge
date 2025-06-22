@@ -1,3 +1,5 @@
+use std::io::{Write, stdout};
+
 use color_eyre::eyre::Result;
 use unit_forge_lib::{Interpretor, UnitDefinitions};
 
@@ -8,6 +10,8 @@ fn main() -> Result<()> {
 
     // read expressions from stdin
     loop {
+        print!("> ");
+        stdout().flush()?;
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
         match interpretor.execute_command(&input) {
