@@ -46,13 +46,19 @@ jobs:
 
       - name: Prepare binary
         run: |
-          mkdir dist
+          mkdir -p dist/unit_definitions
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             cp target/${{ matrix.target }}/release/unit-forge-cli.exe dist/${{ matrix.bin_name }}
-            powershell Compress-Archive -Path dist/${{ matrix.bin_name }} -DestinationPath dist/${{ matrix.zip_name }}
+            cp -r unit_definitions/*.ud dist/unit_definitions/
+            cd dist
+            powershell Compress-Archive -Path ${{ matrix.bin_name }},unit_definitions -DestinationPath ${{ matrix.zip_name }}
+            cd ..
           else
             cp target/${{ matrix.target }}/release/unit-forge-cli dist/${{ matrix.bin_name }}
-            zip dist/${{ matrix.zip_name }} dist/${{ matrix.bin_name }}
+            cp -r unit_definitions/*.ud dist/unit_definitions/
+            cd dist
+            zip -r ${{ matrix.zip_name }} ${{ matrix.bin_name }} unit_definitions
+            cd ..
           fi
         shell: bash
 
