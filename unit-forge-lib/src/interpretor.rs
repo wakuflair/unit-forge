@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chumsky::{extra::Err, prelude::*};
+use chumsky::{extra::Err, number::format::RUST_LITERAL, prelude::*};
 
 use crate::{DefinitionError, unit::UnitTable, unit_definition::UnitDefinitions};
 
@@ -63,12 +63,11 @@ impl<'a> Interpretor<'a> {
         let ident = text::ascii::ident().or(just("$")).padded();
 
         let expr = recursive(|expr| {
-            let int =
-                text::int(10)
-                    .then(ident.or_not())
-                    .map(|(num, unit): (&str, Option<&str>)| {
-                        Expr::Num(num.parse().unwrap(), unit.unwrap_or("")) // Default to empty unit if no unit is provided
-                    });
+            let int = number::<RUST_LITERAL, &'_ str, f64, Err<Simple<'_, char>>>()
+                .then(ident.or_not())
+                .map(|(num, unit): (f64, Option<&str>)| {
+                    Expr::Num(num, unit.unwrap_or("")) // Default to empty unit if no unit is provided
+                });
 
             let atom = int
                 .or(expr.delimited_by(just('('), just(')')))
@@ -400,5 +399,21 @@ sec = { name = "sec", symbol = "s" }
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors[0].1, "Cannot convert to unit \"sec\"");
+    }
+
+    #[test]
+    fn test_float_numbers() {
+        let expr = "1.2 m + 0.45m";
+        let unit_definitions = toml::from_str(
+            r#"
+[length]
+m = { name = "meter", symbol = "m" }
+"#,
+        )
+        .unwrap();
+
+        let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
+        let result = interceptor.execute_command(expr).unwrap();
+        assert_eq!(result, (1.65, "m".to_string()));
     }
 }
