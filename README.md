@@ -12,29 +12,18 @@ Unit Forge is a flexible, extensible command-line calculator for arithmetic with
 
 ## Getting Started
 
-### Prerequisites
-- [Rust](https://www.rust-lang.org/tools/install) (edition 2021 or later)
-
-### Build
-```powershell
-cargo build --release
-```
-
-### Run
-```powershell
-cargo run --release -p unit-forge-cli
-```
-
 ### Usage
 - On launch, the CLI loads all `.ud` files from the `unit_definitions/` directory.
 - Enter expressions such as:
   - `1 m + 2 cm`
   - `3 m * 4 m`
   - `1 m >> cm` (convert 1 meter to centimeters)
-  - `x = 5 m` (assign variable)
+  - `x = 5.3 m` (assign variable)
   - `x + 2 m`
+  - `$ * 2` (`$` is a reserved variable holds the last result)
 - Supported operators: `+`, `-`, `*`, `/`, `>>` (convert)
 - Use parentheses for grouping: `(1 m + 2 m) * 3`
+- Press `Ctrl + C` to exit
 
 ### Defining Units
 Units are defined in TOML-like `.ud` files in the `unit_definitions/` directory. Example:

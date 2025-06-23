@@ -1,5 +1,2 @@
-- [ ] support float numbers
-- [ ] convert units
-- [ ] repl
 - [ ] disable specified .ud files
 - [ ] currency units
