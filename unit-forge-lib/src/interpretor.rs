@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chumsky::{extra::Err, prelude::*};
 
-use crate::{unit::UnitTable, unit_definition::UnitDefinitions, DefinitionError};
+use crate::{DefinitionError, unit::UnitTable, unit_definition::UnitDefinitions};
 
 pub type Error = (std::ops::Range<usize>, String);
 
@@ -139,10 +139,7 @@ impl<'a> Interpretor<'a> {
                     "-"
                 };
                 if unit_a != unit_b {
-                    return Err(format!(
-                        "Cannot evaluate \"{:?} {} {:?}\"",
-                        unit_a, op, unit_b
-                    ));
+                    return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b));
                 }
                 let result = if op == "+" {
                     val_a + val_b
@@ -170,10 +167,7 @@ impl<'a> Interpretor<'a> {
                     None if unit_a.is_empty() => unit_b,
                     None if unit_b.is_empty() => unit_a,
                     None => {
-                        return Err(format!(
-                            "Cannot evaluate \"{:?} {} {:?}\"",
-                            unit_a, op, unit_b
-                        ))
+                        return Err(format!("Cannot evaluate {:?} {} {:?}", unit_a, op, unit_b));
                     }
                 };
                 if op == "*" {
@@ -270,14 +264,14 @@ cm2 = { name = "square center meter", symbol = "cm2", derived = "cm * cm" }
 
     #[test]
     fn test_eval_incompatible_units() {
-        let expr = "1 m + 2 second";
+        let expr = "1 m + 2 sec";
         let unit_definitions = toml::from_str(
             r#"
 [length]
 m = { name = "meter", symbol = "m" }
 
 [time]
-second = { name = "second", symbol = "s" }
+sec = { name = "second", symbol = "s" }
 "#,
         )
         .unwrap();
@@ -286,19 +280,19 @@ second = { name = "second", symbol = "s" }
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert_eq!(errors[0].1, "Cannot evaluate \"m\" + \"second\"");
+        assert_eq!(errors[0].1, "Cannot evaluate \"m\" + \"sec\"");
     }
 
     #[test]
     fn test_eval_invalid_unit_multiplication() {
-        let expr = "2 m * 3 second";
+        let expr = "2 m * 3 sec";
         let unit_definitions = toml::from_str(
             r#"
 [length]
 m = { name = "meter", symbol = "m" }
 
 [time]
-second = { name = "second", symbol = "s" }
+sec = { name = "second", symbol = "s" }
 "#,
         )
         .unwrap();
@@ -306,7 +300,7 @@ second = { name = "second", symbol = "s" }
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert_eq!(errors[0].1, "Cannot evaluate \"m\" * \"second\"");
+        assert_eq!(errors[0].1, "Cannot evaluate \"m\" * \"sec\"");
     }
 
     #[test]
@@ -317,27 +311,27 @@ second = { name = "second", symbol = "s" }
         let result = interceptor.execute_command(expr);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert_eq!(errors[0].1, "Cannot find variable `x` in scope");
+        assert_eq!(errors[0].1, "Cannot find variable \"x\" in scope");
     }
 
     #[test]
     fn test_eval_let_with_incompatible_units() {
-        let expr = "let x = 5 m; x + 3 second";
         let unit_definitions = toml::from_str(
             r#"
 [length]
 m = { name = "meter", symbol = "m" }
 
 [time]
-second = { name = "second", symbol = "s" }
+sec = { name = "second", symbol = "s" }
 "#,
         )
         .unwrap();
         let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
-        let result = interceptor.execute_command(expr);
+        interceptor.execute_command("x = 5m").unwrap();
+        let result = interceptor.execute_command("x + 3 sec");
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert_eq!(errors[0].1, "Cannot evaluate \"m\" + \"second\"");
+        assert_eq!(errors[0].1, "Cannot evaluate \"m\" + \"sec\"");
     }
 
     #[test]
@@ -346,9 +340,9 @@ second = { name = "second", symbol = "s" }
         let unit_definitions = toml::from_str(&str).unwrap();
 
         let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
-        let result = interceptor
-            .execute_command("let x = 2 m; let y = 3 cm; x + y * 4")
-            .unwrap();
+        interceptor.execute_command("x = 2 m").unwrap();
+        interceptor.execute_command("y = 3 cm").unwrap();
+        let result = interceptor.execute_command("x + y * 4").unwrap();
         assert_eq!(result, (2.12, "m".to_string()));
 
         let mut interceptor = Interpretor::new(&unit_definitions).unwrap();
@@ -372,7 +366,7 @@ second = { name = "second", symbol = "s" }
 
     #[test]
     fn test_to_expr() {
-        let expr = "1 m to cm";
+        let expr = "1 m >> cm";
         let unit_definitions = toml::from_str(
             r#"
 [length]
@@ -389,14 +383,14 @@ cm = { name = "centimeter", symbol = "cm", factor = 0.01 }
 
     #[test]
     fn test_to_expr_with_incompatible_units() {
-        let expr = "1 m to sec";
+        let expr = "1 m >> sec";
         let unit_definitions = toml::from_str(
             r#"
 [length]
 m = { name = "meter", symbol = "m" }
 
 [time]
-sec = { name = "second", symbol = "s" }
+sec = { name = "sec", symbol = "s" }
 "#,
         )
         .unwrap();
