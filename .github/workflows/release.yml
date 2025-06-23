@@ -5,27 +5,60 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write # This is required for creating releases
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_name: unit-forge-cli-linux
+            zip_name: unit-forge-cli-linux.zip
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_name: unit-forge-cli.exe
+            zip_name: unit-forge-cli-windows.zip
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bin_name: unit-forge-cli-macos
+            zip_name: unit-forge-cli-macos.zip
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+          target: ${{ matrix.target }}
           override: true
+
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --target ${{ matrix.target }}
+
       - name: Run tests
-        run: cargo test --release
-      - name: Package binaries
+        run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Prepare binary
         run: |
           mkdir dist
-          cp target/release/unit-forge-cli dist/
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp target/${{ matrix.target }}/release/unit-forge-cli.exe dist/${{ matrix.bin_name }}
+            powershell Compress-Archive -Path dist/${{ matrix.bin_name }} -DestinationPath dist/${{ matrix.zip_name }}
+          else
+            cp target/${{ matrix.target }}/release/unit-forge-cli dist/${{ matrix.bin_name }}
+            zip dist/${{ matrix.zip_name }} dist/${{ matrix.bin_name }}
+          fi
+        shell: bash
+
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/unit-forge-cli
+          files: dist/${{ matrix.zip_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
